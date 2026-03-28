@@ -20,13 +20,9 @@ public:
     
         json += F("{\"id\":\"");
         json += jsonEscape(id());
-        json += F("\",\"value\":");
-        json += F("{\"status\":\"");
-        switch (reservoir_.status()) {
-            case RemoteReservoir::Status::Unknown: json += F("disconnected"); break;
-            case RemoteReservoir::Status::Fresh:   json += F("connected");    break;
-            case RemoteReservoir::Status::Stale:   json += F("disconnected"); break;
-        }
+        json += F("\",\"value\":{");
+    
+        const bool connected = (reservoir_.status() == RemoteReservoir::Status::Fresh);
     
         float level = reservoir_.info().level();
         if (isnan(level) || isinf(level)) level = 0.0f;
@@ -40,12 +36,18 @@ public:
         if (level < 0.0f) level = 0.0f;
         if (level > 100.0f) level = 100.0f;
     
-        json += F("\",\"level\":");
+        json += F("\"connected\":");
+        json += connected ? F("true") : F("false");
+    
+        json += F(",\"level\":");
         json += String(level, 1);
+    
         json += F(",\"capacity\":");
         json += String(capacity, 1);
+    
         json += F(",\"temperature\":");
         json += String(temperature, 1);
+    
         json += F(",\"name\":\"");
         json += jsonEscape(name_);
         json += F("\"}}");
@@ -55,14 +57,19 @@ public:
 
     String createHtmlFragment() const override {
         String html;
-        html.reserve(2600);
+        html.reserve(3200);
     
         html += "<div id='"; html += id(); html += "_wrap' ";
         html += "style='display:flex;align-items:center;gap:0.5em;flex-wrap:wrap'>";
-        
+    
         html += "<span id='"; html += id(); html += "_name'>Loading...</span>";
-        html += "<span id='"; html += id(); html += "_status'></span>";
-        html += "<span id='"; html += id(); html += "_leveltxt'></span>";
+    
+        html += "<span id='"; html += id(); html += "_led' ";
+        html += "title='connection status' ";
+        html += "style='display:inline-block;width:0.8em;height:0.8em;";
+        html += "border-radius:50%;border:1px solid #666;background:#999;";
+        html += "vertical-align:middle'></span>";
+    
     
         html += "<span style='display:inline-block;width:6em;height:0.8em;";
         html += "border:1px solid #888;border-radius:4px;overflow:hidden;";
@@ -71,6 +78,7 @@ public:
         html += "style='display:block;height:100%;width:0%;background:#4caf50'></span>";
         html += "</span>";
     
+        html += "<span id='"; html += id(); html += "_leveltxt'></span>";
         html += "<span id='"; html += id(); html += "_cap'></span>";
         html += "<span id='"; html += id(); html += "_temp'></span>";
         html += "</div>\n";
@@ -78,7 +86,7 @@ public:
         html += "<script>\n"
                 "(function(){\n"
                 "  const nameEl=document.getElementById('"; html += id(); html += "_name');\n"
-                "  const statusEl=document.getElementById('"; html += id(); html += "_status');\n"
+                "  const ledEl=document.getElementById('"; html += id(); html += "_led');\n"
                 "  const levelEl=document.getElementById('"; html += id(); html += "_leveltxt');\n"
                 "  const capEl=document.getElementById('"; html += id(); html += "_cap');\n"
                 "  const tempEl=document.getElementById('"; html += id(); html += "_temp');\n"
@@ -89,26 +97,33 @@ public:
                 "  async function poll(){\n"
                 "    try{\n"
                 "      const r=await fetch('"; html += handle(); html += "');\n"
-                "      if(!r.ok) return;\n"
+                "      if(!r.ok) throw new Error('HTTP '+r.status);\n"
                 "      const d=await r.json();\n"
                 "      const v=d.value || {};\n"
                 "\n"
                 "      const name = v.name || '';\n"
-                "      const status = v.status || 'unknown';\n"
+                "      const connected = !!v.connected;\n"
                 "      const level = clamp(Number(v.level || 0), 0, 100);\n"
                 "      const capacity = Number(v.capacity || 0);\n"
                 "      const temperature = Number(v.temperature || 0);\n"
                 "\n"
                 "      nameEl.textContent = name;\n"
-                "      statusEl.textContent = 'status: ' + status;\n"
-                "      levelEl.textContent = 'level: ' + level.toFixed(1) + '%';\n"
-                "      capEl.textContent = 'capacity: ' + capacity.toFixed(1) + ' l';\n"
-                "      tempEl.textContent = 'temperature: ' + temperature.toFixed(1) + ' C';\n"
+                "      levelEl.textContent = ' ' + level.toFixed(1) + '%';\n"
+                "      capEl.textContent = ' / ' + capacity.toFixed(1) + ' l';\n"
+                "      tempEl.textContent = ' | ' + temperature.toFixed(1) + ' C';\n"
                 "      barEl.style.width = level.toFixed(1) + '%';\n"
-                "      barEl.style.background = (status === 'connected') ? '#4caf50' : '#9e9e9e';\n"
-                "    }catch(e){ console.error(e); }\n"
+                "      ledEl.style.background = connected ? '#2ecc71' : '#e74c3c';\n"
+                "      ledEl.title = connected ? 'connected' : 'disconnected';\n"
+                "    }catch(e){\n"
+                "      ledEl.style.background = '#e74c3c';\n"
+                "      ledEl.title = 'fetch error';\n"
+                "      levelEl.textContent = ' ---%';\n"
+                "      capEl.textContent = ' / --.- l';\n"
+                "      tempEl.textContent = ' | --.- C';\n"
+                "      barEl.style.width = '0%';\n"
+                "      console.error(e);\n"
+                "    }\n"
                 "  }\n"
-                "\n"
                 "  poll();\n"
                 "  setInterval(poll, ";
         html += String(updateInterval() * 1000);
